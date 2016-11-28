@@ -48,7 +48,6 @@ def ReadFile( filepath ):
   with open( filepath, encoding = 'utf8' ) as f:
     return f.read()
 
-
 # Returns a file object that can be used to replace sys.stdout or sys.stderr
 def OpenForStdHandle( filepath ):
   # Need to open the file in binary mode on py2 because of bytes vs unicode.
