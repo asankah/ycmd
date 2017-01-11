@@ -32,18 +32,16 @@ from bottle import request
 from threading import Thread
 
 import ycm_core
-from ycmd import extra_conf_store, hmac_plugin, server_state, user_options_store
-from ycmd.responses import BuildExceptionResponse, BuildCompletionResponse
-from ycmd.request_wrap import RequestWrap
+from ycmd import hmac_plugin
+from ycmd.responses import BuildExceptionResponse
 from ycmd.bottle_utils import SetResponseHeader
-from ycmd.completers.completer_utils import FilterAndSortCandidatesWrap
+from ycmd import requests
 
 
 # num bytes for the request body buffer; request.json only works if the request
 # size is less than this
 bottle.Request.MEMFILE_MAX = 10 * 1024 * 1024
 
-_server_state = None
 _hmac_secret = bytes()
 _logger = logging.getLogger( __name__ )
 app = bottle.Bottle()
@@ -52,177 +50,66 @@ wsgi_server = None
 
 @app.post( '/event_notification' )
 def EventNotification():
-  _logger.info( 'Received event notification' )
-  request_data = RequestWrap( request.json )
-  event_name = request_data[ 'event_name' ]
-  _logger.debug( 'Event name: %s', event_name )
-
-  event_handler = 'On' + event_name
-  getattr( _server_state.GetGeneralCompleter(), event_handler )( request_data )
-
-  filetypes = request_data[ 'filetypes' ]
-  response_data = None
-  if _server_state.FiletypeCompletionUsable( filetypes ):
-    response_data = getattr( _server_state.GetFiletypeCompleter( filetypes ),
-                             event_handler )( request_data )
-
-  if response_data:
-    return _JsonResponse( response_data )
-  return _JsonResponse( {} )
+  return _JsonResponse( requests.EventNotification( request.json ) )
 
 
 @app.post( '/run_completer_command' )
 def RunCompleterCommand():
-  _logger.info( 'Received command request' )
-  request_data = RequestWrap( request.json )
-  completer = _GetCompleterForRequestData( request_data )
-
-  return _JsonResponse( completer.OnUserCommand(
-      request_data[ 'command_arguments' ],
-      request_data ) )
+  return _JsonResponse( requests.RunCompleterCommand( request.json ) )
 
 
 @app.post( '/completions' )
 def GetCompletions():
-  _logger.info( 'Received completion request' )
-  request_data = RequestWrap( request.json )
-  ( do_filetype_completion, forced_filetype_completion ) = (
-                    _server_state.ShouldUseFiletypeCompleter( request_data ) )
-  _logger.debug( 'Using filetype completion: %s', do_filetype_completion )
-
-  errors = None
-  completions = None
-
-  if do_filetype_completion:
-    try:
-      completions = ( _server_state.GetFiletypeCompleter(
-                                  request_data[ 'filetypes' ] )
-                                 .ComputeCandidates( request_data ) )
-
-    except Exception as exception:
-      if forced_filetype_completion:
-        # user explicitly asked for semantic completion, so just pass the error
-        # back
-        raise
-      else:
-        # store the error to be returned with results from the identifier
-        # completer
-        stack = traceback.format_exc()
-        _logger.error( 'Exception from semantic completer (using general): ' +
-                        "".join( stack ) )
-        errors = [ BuildExceptionResponse( exception, stack ) ]
-
-  if not completions and not forced_filetype_completion:
-    completions = ( _server_state.GetGeneralCompleter()
-                                 .ComputeCandidates( request_data ) )
-
-  return _JsonResponse(
-      BuildCompletionResponse( completions if completions else [],
-                               request_data.CompletionStartColumn(),
-                               errors = errors ) )
+  return _JsonResponse( requests.GetCompletions( request.json ) )
 
 
 @app.post( '/filter_and_sort_candidates' )
 def FilterAndSortCandidates():
-  _logger.info( 'Received filter & sort request' )
-  # Not using RequestWrap because no need and the requests coming in aren't like
-  # the usual requests we handle.
-  request_data = request.json
-
-  return _JsonResponse( FilterAndSortCandidatesWrap(
-    request_data[ 'candidates'],
-    request_data[ 'sort_property' ],
-    request_data[ 'query' ] ) )
+  return _JsonResponse( requests.FilterAndSortCandidates( request.json ) )
 
 
 @app.get( '/healthy' )
 def GetHealthy():
-  _logger.info( 'Received health request' )
-  if request.query.include_subservers:
-    cs_completer = _server_state.GetFiletypeCompleter( ['cs'] )
-    return _JsonResponse( cs_completer.ServerIsHealthy() )
-  return _JsonResponse( True )
+  return _JsonResponse( requests.GetHealthy(
+      request.query.include_subservers ) )
 
 
 @app.get( '/ready' )
 def GetReady():
-  _logger.info( 'Received ready request' )
-  if request.query.subserver:
-    filetype = request.query.subserver
-    return _JsonResponse( _IsSubserverReady( filetype ) )
-  if request.query.include_subservers:
-    return _JsonResponse( _IsSubserverReady( 'cs' ) )
-  return _JsonResponse( True )
-
-
-def _IsSubserverReady( filetype ):
-  completer = _server_state.GetFiletypeCompleter( [filetype] )
-  return completer.ServerIsReady()
+  return _JsonResponse( requests.GetReady(
+      subserver=request.query.subserver,
+      include_subservers=request.query.include_subservers ) )
 
 
 @app.post( '/semantic_completion_available' )
 def FiletypeCompletionAvailable():
-  _logger.info( 'Received filetype completion available request' )
-  return _JsonResponse( _server_state.FiletypeCompletionAvailable(
-      RequestWrap( request.json )[ 'filetypes' ] ) )
+  return _JsonResponse( requests.FiletypeCompletionAvailable(
+      request.json ) )
 
 
 @app.post( '/defined_subcommands' )
 def DefinedSubcommands():
-  _logger.info( 'Received defined subcommands request' )
-  completer = _GetCompleterForRequestData( RequestWrap( request.json ) )
-
-  return _JsonResponse( completer.DefinedSubcommands() )
+  return _JsonResponse( requests.DefinedSubcommands( request.json ) )
 
 
 @app.post( '/detailed_diagnostic' )
 def GetDetailedDiagnostic():
-  _logger.info( 'Received detailed diagnostic request' )
-  request_data = RequestWrap( request.json )
-  completer = _GetCompleterForRequestData( request_data )
-
-  return _JsonResponse( completer.GetDetailedDiagnostic( request_data ) )
+  return _JsonResponse( requests.GetDetailedDiagnostic( request.json ) )
 
 
 @app.post( '/load_extra_conf_file' )
 def LoadExtraConfFile():
-  _logger.info( 'Received extra conf load request' )
-  request_data = RequestWrap( request.json, validate = False )
-  extra_conf_store.Load( request_data[ 'filepath' ], force = True )
-
-  return _JsonResponse( True )
+  return _JsonResponse( requests.LoadExtraConfFile( request.json ) )
 
 
 @app.post( '/ignore_extra_conf_file' )
 def IgnoreExtraConfFile():
-  _logger.info( 'Received extra conf ignore request' )
-  request_data = RequestWrap( request.json, validate = False )
-  extra_conf_store.Disable( request_data[ 'filepath' ] )
-
-  return _JsonResponse( True )
+  return _JsonResponse( requests.IgnoreExtraConfFile( request.json ) )
 
 
 @app.post( '/debug_info' )
 def DebugInfo():
-  _logger.info( 'Received debug info request' )
-
-  output = []
-  has_clang_support = ycm_core.HasClangSupport()
-  output.append( 'Server has Clang support compiled in: {0}'.format(
-    has_clang_support ) )
-
-  if has_clang_support:
-    output.append( 'Clang version: ' + ycm_core.ClangVersion() )
-
-  request_data = RequestWrap( request.json )
-  try:
-    output.append(
-        _GetCompleterForRequestData( request_data ).DebugInfo( request_data ) )
-  except Exception:
-    _logger.debug( 'Exception in debug info request: '
-                   + traceback.format_exc() )
-
-  return _JsonResponse( '\n'.join( output ) )
+  return _JsonResponse( requests.DebugInfo( request.json ) )
 
 
 @app.post( '/shutdown' )
@@ -259,17 +146,6 @@ def _UniversalSerialize( obj ):
     return str( obj )
 
 
-def _GetCompleterForRequestData( request_data ):
-  completer_target = request_data.get( 'completer_target', None )
-
-  if completer_target == 'identifier':
-    return _server_state.GetGeneralCompleter().GetIdentifierCompleter()
-  elif completer_target == 'filetype_default' or not completer_target:
-    return _server_state.GetFiletypeCompleter( request_data[ 'filetypes' ] )
-  else:
-    return _server_state.GetFiletypeCompleter( [ completer_target ] )
-
-
 def ServerShutdown():
   def Terminator():
     if wsgi_server:
@@ -283,9 +159,7 @@ def ServerShutdown():
 
 
 def ServerCleanup():
-  if _server_state:
-    _server_state.Shutdown()
-    extra_conf_store.Shutdown()
+  requests.ServerCleanup()
 
 
 def SetHmacSecret( hmac_secret ):
@@ -294,23 +168,11 @@ def SetHmacSecret( hmac_secret ):
 
 
 def UpdateUserOptions( options ):
-  global _server_state
-
-  if not options:
-    return
-
-  # This should never be passed in, but let's try to remove it just in case.
-  options.pop( 'hmac_secret', None )
-  user_options_store.SetAll( options )
-  _server_state = server_state.ServerState( options )
+  requests.UpdateUserOptions( options )
 
 
 def SetServerStateToDefaults():
-  global _server_state, _logger
-  _logger = logging.getLogger( __name__ )
-  user_options_store.LoadDefaults()
-  _server_state = server_state.ServerState( user_options_store.GetAll() )
-  extra_conf_store.Reset()
+  requests.SetServerStateToDefaults()
 
 
 def KeepSubserversAlive( check_interval_seconds ):
@@ -319,7 +181,7 @@ def KeepSubserversAlive( check_interval_seconds ):
       time.sleep( check_interval_seconds )
 
       _logger.debug( 'Keeping subservers alive' )
-      loaded_completers = _server_state.GetLoadedFiletypeCompleters()
+      loaded_completers = requests.GetLoadedFiletypeCompleters()
       for completer in loaded_completers:
         completer.ServerIsHealthy()
 

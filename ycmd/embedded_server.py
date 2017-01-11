@@ -76,11 +76,11 @@ def StartEmbedded(user_options):
   # These can't be top-level imports because they transitively import
   # ycm_core which we want to be imported ONLY after extra conf
   # preload has executed.
-  from ycmd import handlers
-  handlers.UpdateUserOptions(options)
-  atexit.register(handlers.ServerCleanup)
+  from ycmd import requests
+  requests.UpdateUserOptions(options)
+  atexit.register(requests.ServerCleanup)
 
   global _EXECUTOR
   _EXECUTOR = ThreadPoolExecutor(user_options.get('max_workers', MAX_WORKERS))
 
-  return WrappedNamespace(handlers, _EXECUTOR)
+  return WrappedNamespace(requests, _EXECUTOR)
