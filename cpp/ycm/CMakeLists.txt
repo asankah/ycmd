@@ -201,6 +201,17 @@ if ( NOT EXTERNAL_LIBCLANG_PATH AND PATH_TO_LLVM_ROOT )
   set( EXTERNAL_LIBCLANG_PATH ${TEMP} )
 endif()
 
+# Clang tooling support.
+if ( USE_CLANG_COMPLETER )
+  set( CMAKE_FIND_ROOT_PATH ${LIBCLANG_SEARCH_PATH}/cmake/clang ${LIBCLANG_SEARCH_PATH}/cmake/llvm )
+  find_package( Clang COMPONENTS clangTooling )
+  if ( Clang_FOUND )
+    message( "Enabling support for Clang tooling" )
+    add_definitions( -DUSE_CLANG_TOOLING )
+    set( CLANG_TOOLING_LIBS clangTooling )
+  endif()
+endif()
+
 # This is a workaround for a CMake bug with include_directories(SYSTEM ...)
 # on Mac OS X. Bug report: http://public.kitware.com/Bug/view.php?id=10837
 if ( APPLE )
@@ -344,6 +355,7 @@ target_link_libraries( ${PROJECT_NAME}
                        ${Boost_LIBRARIES}
                        ${PYTHON_LIBRARIES}
                        ${LIBCLANG_TARGET}
+		       ${CLANG_TOOLING_LIBS}
                        ${EXTRA_LIBS}
                      )
 

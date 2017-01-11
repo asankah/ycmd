@@ -134,4 +134,48 @@ TEST_F( TranslationUnitTest, GoToDeclarationWorksOnDefinition ) {
   EXPECT_TRUE( !location.filename_.empty() );
 }
 
+#if defined(USE_CLANG_TOOLING)
+TEST_F( TranslationUnitTest, DriverSelectionWorks ) {
+  fs::path path_to_testdata = fs::current_path() / fs::path( "testdata" );
+  fs::path test_file = path_to_testdata / fs::path( "defines.cpp" );
+  const char* kFlags[] = {
+    "clang-cl", "/DFOO"
+  };
+
+  TranslationUnit unit( test_file.string(),
+                        std::vector< UnsavedFile >(),
+                        std::vector< std::string >( std::begin(kFlags), std::end(kFlags) ),
+                        clang_index_ );
+  Location location = unit.GetDefinitionLocation(
+      9,
+      3,
+      std::vector< UnsavedFile >() );
+  
+  // Definition in line 2 is only exposed if FOO is defined.
+  EXPECT_EQ( 2, location.line_number_ );
+}
+#endif
+
+TEST_F( TranslationUnitTest, DriverSelectionFails ) {
+  fs::path path_to_testdata = fs::current_path() / fs::path( "testdata" );
+  fs::path test_file = path_to_testdata / fs::path( "defines.cpp" );
+  const char* kFlags[] = {
+    "clang", "/DFOO"
+  };
+
+  TranslationUnit unit( test_file.string(),
+                        std::vector< UnsavedFile >(),
+                        std::vector< std::string >( std::begin(kFlags), std::end(kFlags) ),
+                        clang_index_ );
+  Location location = unit.GetDefinitionLocation(
+      9,
+      3,
+      std::vector< UnsavedFile >() );
+
+  // Definition in line 4 is exposed if FOO is not defined, which would be the
+  // case if the command line was not parsed correctly due to the driver mode
+  // not being set.
+  EXPECT_EQ( 4, location.line_number_ );
+}
+
 } // namespace YouCompleteMe

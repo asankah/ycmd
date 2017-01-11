@@ -25,6 +25,10 @@
 #include <boost/shared_ptr.hpp>
 #include <boost/type_traits/remove_pointer.hpp>
 
+#if defined(USE_CLANG_TOOLING)
+#include <clang/Tooling/Tooling.h>
+#endif
+
 using boost::unique_lock;
 using boost::mutex;
 using boost::try_to_lock_t;
@@ -62,6 +66,23 @@ void EnsureCompilerNamePresent( std::vector< const char * > &flags ) {
     flags.insert( flags.begin(), "clang" );
 }
 
+std::vector< std::string > GetToolingFlags( const std::vector< std::string > &flags ) {
+  std::vector< std::string > adjusted_flags;
+
+  if ( flags.empty() || flags.front()[ 0 ] == '-' ) {
+    adjusted_flags.reserve( flags.size() + 1 );
+    adjusted_flags.push_back( "clang" );
+    adjusted_flags.insert( adjusted_flags.end(), flags.begin(), flags.end() );
+    return adjusted_flags;
+  }
+
+  adjusted_flags.assign( flags.begin(), flags.end() );
+#if defined(USE_CLANG_TOOLING)
+  clang::tooling::addTargetAndModeForProgramName( adjusted_flags, flags[0] );
+#endif
+  return adjusted_flags;
+}
+
 }  // unnamed namespace
 
 typedef shared_ptr <
@@ -79,14 +100,13 @@ TranslationUnit::TranslationUnit(
   CXIndex clang_index )
   : filename_( filename ),
     clang_translation_unit_( NULL ) {
+  std::vector< std::string > adjusted_flags = GetToolingFlags( flags );
+  
   std::vector< const char * > pointer_flags;
-  pointer_flags.reserve( flags.size() );
-
-  foreach ( const std::string & flag, flags ) {
+  pointer_flags.reserve( adjusted_flags.size() );
+  foreach ( const std::string & flag, adjusted_flags ) {
     pointer_flags.push_back( flag.c_str() );
   }
-
-  EnsureCompilerNamePresent( pointer_flags );
 
   std::vector< CXUnsavedFile > cxunsaved_files =
     ToCXUnsavedFiles( unsaved_files );
