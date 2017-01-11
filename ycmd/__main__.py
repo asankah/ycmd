@@ -45,7 +45,6 @@ from ycmd import extra_conf_store, user_options_store, utils
 from ycmd.hmac_plugin import HmacPlugin
 from ycmd.utils import ToBytes, ReadFile, OpenForStdHandle
 from ycmd.wsgi_server import StoppableWSGIServer
-from ycmd.pipe_server import PipeServer
 
 
 def YcmCoreSanityCheck():
@@ -117,8 +116,6 @@ def ParseArguments():
                        help = 'optional file to use for stderr' )
   parser.add_argument( '--keep_logfiles', action = 'store_true', default = None,
                        help = 'retain logfiles after the server exits' )
-  parser.add_argument( '--embed', action = 'store_true', default = False,
-                       help = 'embedded mode.' )
   return parser.parse_args()
 
 
@@ -151,11 +148,10 @@ def CloseStdin():
 def Main():
   args = ParseArguments()
 
-  if not args.embed:
-    if args.stdout is not None:
-      sys.stdout = OpenForStdHandle( args.stdout )
-    if args.stderr is not None:
-      sys.stderr = OpenForStdHandle( args.stderr )
+  if args.stdout is not None:
+    sys.stdout = OpenForStdHandle( args.stdout )
+  if args.stderr is not None:
+    sys.stderr = OpenForStdHandle( args.stderr )
 
   SetupLogging( args.log )
   options, hmac_secret = SetupOptions( args.options_file )
@@ -168,6 +164,8 @@ def Main():
   code = CompatibleWithCurrentCore()
   if code:
     sys.exit( code )
+
+  PossiblyDetachFromTerminal()
 
   # These can't be top-level imports because they transitively import
   # ycm_core which we want to be imported ONLY after extra conf
@@ -184,20 +182,14 @@ def Main():
                                     args.stderr,
                                     args.keep_logfiles )
   atexit.register( handlers.ServerCleanup )
-  if args.embed:
-    handlers.wsgi_server = PipeServer(handlers.app)
-  else:
-    handlers.app.install( WatchdogPlugin( args.idle_suicide_seconds,
-                                          args.check_interval_seconds ) )
-    handlers.app.install( HmacPlugin( hmac_secret ) )
-    handlers.wsgi_server = StoppableWSGIServer( handlers.app,
-                                                host = args.host,
-                                                port = args.port,
-                                                threads = 30 )
-
-    PossiblyDetachFromTerminal()
-    CloseStdin()
-
+  handlers.app.install( WatchdogPlugin( args.idle_suicide_seconds,
+                                        args.check_interval_seconds ) )
+  handlers.app.install( HmacPlugin( hmac_secret ) )
+  CloseStdin()
+  handlers.wsgi_server = StoppableWSGIServer( handlers.app,
+                                              host = args.host,
+                                              port = args.port,
+                                              threads = 30 )
   handlers.wsgi_server.Run()
 
 
