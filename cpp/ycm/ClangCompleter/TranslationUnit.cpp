@@ -59,14 +59,8 @@ unsigned CompletionOptions() {
          CXCodeComplete_IncludeBriefComments;
 }
 
-void EnsureCompilerNamePresent( std::vector< const char * > &flags ) {
-  bool no_compiler_name_set = !flags.empty() && flags.front()[ 0 ] == '-';
-
-  if ( flags.empty() || no_compiler_name_set )
-    flags.insert( flags.begin(), "clang" );
-}
-
-std::vector< std::string > GetToolingFlags( const std::vector< std::string > &flags ) {
+std::vector< std::string > GetToolingFlags(
+  const std::vector< std::string > &flags ) {
   std::vector< std::string > adjusted_flags;
 
   if ( flags.empty() || flags.front()[ 0 ] == '-' ) {
